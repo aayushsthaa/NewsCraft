@@ -15,7 +15,8 @@ class Database {
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
             ]);
         } catch(PDOException $e) {
-            die("Database connection failed: " . $e->getMessage());
+            error_log("Database connection failed: " . $e->getMessage());
+            throw new Exception("Database connection failed. Please try again later.");
         }
     }
 
@@ -48,14 +49,19 @@ class Database {
         $columns = implode(', ', array_keys($data));
         $placeholders = ':' . implode(', :', array_keys($data));
         
-        $sql = "INSERT INTO $table ($columns) VALUES ($placeholders)";
+        $sql = "INSERT INTO $table ($columns) VALUES ($placeholders) RETURNING id";
         $stmt = $this->pdo->prepare($sql);
         
         foreach ($data as $key => $value) {
             $stmt->bindValue(":$key", $value);
         }
         
-        return $stmt->execute();
+        if ($stmt->execute()) {
+            $result = $stmt->fetch();
+            return $result ? $result['id'] : true;
+        }
+        
+        return false;
     }
 
     public function update($table, $data, $where, $whereParams = []) {
@@ -84,8 +90,26 @@ class Database {
         return $this->query($sql, $params);
     }
 
-    public function lastInsertId() {
-        return $this->pdo->lastInsertId();
+    public function queryWithLimitOffset($sql, $params = [], $limit = null, $offset = 0) {
+        if ($limit !== null) {
+            $sql .= " LIMIT :limit OFFSET :offset";
+        }
+        
+        $stmt = $this->pdo->prepare($sql);
+        
+        // Bind regular parameters
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        
+        // Bind LIMIT and OFFSET with explicit integer type
+        if ($limit !== null) {
+            $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
+            $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
+        }
+        
+        $stmt->execute();
+        return $stmt;
     }
 }
 ?>

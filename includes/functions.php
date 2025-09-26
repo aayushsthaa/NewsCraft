@@ -22,6 +22,9 @@ function login($username, $password) {
     );
     
     if ($user && password_verify($password, $user['password'])) {
+        // Regenerate session ID to prevent session fixation attacks
+        session_regenerate_id(true);
+        
         $_SESSION['admin_id'] = $user['id'];
         $_SESSION['admin_username'] = $user['username'];
         $_SESSION['admin_email'] = $user['email'];
@@ -35,6 +38,35 @@ function logout() {
     session_destroy();
     header('Location: ' . ADMIN_URL . '/login.php');
     exit;
+}
+
+// CSRF Protection functions
+function generateCSRFToken() {
+    $token = bin2hex(random_bytes(32));
+    $_SESSION['csrf_token'] = $token;
+    return $token;
+}
+
+function getCSRFToken() {
+    if (!isset($_SESSION['csrf_token'])) {
+        return generateCSRFToken();
+    }
+    return $_SESSION['csrf_token'];
+}
+
+function validateCSRFToken($token) {
+    if (!isset($_SESSION['csrf_token'])) {
+        return false;
+    }
+    
+    $isValid = hash_equals($_SESSION['csrf_token'], $token);
+    
+    // Regenerate token after validation for added security
+    if ($isValid) {
+        generateCSRFToken();
+    }
+    
+    return $isValid;
 }
 
 // Utility functions
@@ -62,8 +94,13 @@ function truncateText($text, $length = 100, $suffix = '...') {
 }
 
 // Image upload function
-function uploadImage($file, $directory = 'posts') {
+function uploadImage($file, $directory = 'posts', $maxSize = 5242880) { // 5MB default limit
     if (!isset($file['tmp_name']) || empty($file['tmp_name'])) {
+        return false;
+    }
+    
+    // Check file size limit
+    if ($file['size'] > $maxSize) {
         return false;
     }
     
@@ -74,16 +111,38 @@ function uploadImage($file, $directory = 'posts') {
         mkdir($uploadDir, 0755, true);
     }
     
-    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    $fileType = $file['type'];
+    // Use finfo to get the real MIME type
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $realMimeType = finfo_file($finfo, $file['tmp_name']);
+    finfo_close($finfo);
     
-    if (!in_array($fileType, $allowedTypes)) {
+    // Allowed MIME types and corresponding extensions
+    $allowedTypes = [
+        'image/jpeg' => ['jpg', 'jpeg'],
+        'image/png' => ['png'],
+        'image/gif' => ['gif'],
+        'image/webp' => ['webp']
+    ];
+    
+    if (!array_key_exists($realMimeType, $allowedTypes)) {
         return false;
     }
     
-    $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-    $filename = uniqid() . '.' . $extension;
+    // Validate file extension
+    $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    if (!in_array($extension, $allowedTypes[$realMimeType])) {
+        return false;
+    }
+    
+    // Generate secure random filename
+    $filename = bin2hex(random_bytes(16)) . '.' . $extension;
     $targetPath = $uploadDir . $filename;
+    
+    // Ensure filename is unique
+    while (file_exists($targetPath)) {
+        $filename = bin2hex(random_bytes(16)) . '.' . $extension;
+        $targetPath = $uploadDir . $filename;
+    }
     
     if (move_uploaded_file($file['tmp_name'], $targetPath)) {
         return $directory . '/' . $filename;
@@ -113,13 +172,7 @@ function getPosts($limit = null, $offset = 0, $categoryId = null, $status = 'pub
     
     $sql .= " ORDER BY p.created_at DESC";
     
-    if ($limit) {
-        $sql .= " LIMIT :limit OFFSET :offset";
-        $params[':limit'] = $limit;
-        $params[':offset'] = $offset;
-    }
-    
-    return $db->fetchAll($sql, $params);
+    return $db->queryWithLimitOffset($sql, $params, $limit, $offset)->fetchAll();
 }
 
 function getPostBySlug($slug) {
