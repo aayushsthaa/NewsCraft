@@ -110,7 +110,7 @@ $page_title = getSiteSetting('site_name', 'News Portal');
                 <?php endif; ?>
 
                 <!-- Ads Section -->
-                <?php $header_ads = getActiveAds('header'); ?>
+                <?php $header_ads = getActiveAdsByPosition('header'); ?>
                 <?php if (!empty($header_ads)): ?>
                     <section class="ads-section">
                         <?php foreach ($header_ads as $ad): ?>
@@ -120,9 +120,13 @@ $page_title = getSiteSetting('site_name', 'News Portal');
                                 <?php endif; ?>
                                 
                                 <?php if ($ad['image_url']): ?>
-                                    <img src="<?php echo htmlspecialchars($ad['image_url']); ?>" alt="<?php echo htmlspecialchars($ad['title']); ?>">
+                                    <?php 
+                                    // Handle both relative and full URL paths for backward compatibility
+                                    $image_src = (strpos($ad['image_url'], 'http') === 0) ? $ad['image_url'] : UPLOAD_URL . $ad['image_url'];
+                                    ?>
+                                    <img src="<?php echo htmlspecialchars($image_src); ?>" alt="<?php echo htmlspecialchars($ad['title']); ?>">
                                 <?php else: ?>
-                                    <?php echo $ad['content']; ?>
+                                    <?php echo $ad['content']; // Content is already sanitized when saved ?>
                                 <?php endif; ?>
                                 
                                 <?php if ($ad['link_url']): ?>
@@ -165,7 +169,7 @@ $page_title = getSiteSetting('site_name', 'News Portal');
                 </section>
 
                 <!-- Sidebar Ads -->
-                <?php $sidebar_ads = getActiveAds('sidebar'); ?>
+                <?php $sidebar_ads = getActiveAdsByPosition('sidebar'); ?>
                 <?php if (!empty($sidebar_ads)): ?>
                     <aside class="sidebar">
                         <div class="sidebar-ads">
@@ -176,9 +180,13 @@ $page_title = getSiteSetting('site_name', 'News Portal');
                                     <?php endif; ?>
                                     
                                     <?php if ($ad['image_url']): ?>
-                                        <img src="<?php echo htmlspecialchars($ad['image_url']); ?>" alt="<?php echo htmlspecialchars($ad['title']); ?>">
+                                        <?php 
+                                        // Handle both relative and full URL paths for backward compatibility
+                                        $image_src = (strpos($ad['image_url'], 'http') === 0) ? $ad['image_url'] : UPLOAD_URL . $ad['image_url'];
+                                        ?>
+                                        <img src="<?php echo htmlspecialchars($image_src); ?>" alt="<?php echo htmlspecialchars($ad['title']); ?>">
                                     <?php else: ?>
-                                        <?php echo $ad['content']; ?>
+                                        <?php echo $ad['content']; // Content is already sanitized when saved ?>
                                     <?php endif; ?>
                                     
                                     <?php if ($ad['link_url']): ?>

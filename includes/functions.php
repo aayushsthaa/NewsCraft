@@ -252,4 +252,147 @@ function updateSiteSetting($key, $value) {
         ]);
     }
 }
+
+// Ad content sanitization function
+function sanitizeAdContent($content) {
+    if (empty($content)) {
+        return '';
+    }
+    
+    // Define allowed HTML tags and their attributes
+    $allowed_tags = [
+        'p' => [],
+        'br' => [],
+        'strong' => [],
+        'b' => [],
+        'em' => [],
+        'i' => [],
+        'a' => ['href', 'title', 'target'],
+        'img' => ['src', 'alt', 'width', 'height', 'class'],
+        'div' => ['class'],
+        'span' => ['class']
+    ];
+    
+    // Remove all script tags and their content first
+    $content = preg_replace('/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/mi', '', $content);
+    
+    // Remove javascript: and data: protocols from all attributes
+    $content = preg_replace('/\s*(?:javascript|data|vbscript):[^"\']*["\']?/i', '', $content);
+    
+    // Remove on* event handlers (onclick, onload, etc.)
+    $content = preg_replace('/\s*on\w+\s*=\s*["\'][^"\']*["\']?/i', '', $content);
+    
+    // Build allowed tags string for strip_tags
+    $allowed_tags_string = '<' . implode('><', array_keys($allowed_tags)) . '>';
+    
+    // Strip all tags except allowed ones
+    $content = strip_tags($content, $allowed_tags_string);
+    
+    // Parse and validate remaining tags and attributes
+    $dom = new DOMDocument();
+    $dom->loadHTML('<?xml encoding="UTF-8">' . $content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING);
+    
+    $xpath = new DOMXPath($dom);
+    $nodes = $xpath->query('//*');
+    
+    foreach ($nodes as $node) {
+        $tag_name = strtolower($node->nodeName);
+        
+        // Remove unknown tags
+        if (!array_key_exists($tag_name, $allowed_tags)) {
+            $node->parentNode->removeChild($node);
+            continue;
+        }
+        
+        // Check attributes
+        $allowed_attrs = $allowed_tags[$tag_name];
+        $attributes_to_remove = [];
+        
+        foreach ($node->attributes as $attr) {
+            $attr_name = strtolower($attr->name);
+            
+            if (!in_array($attr_name, $allowed_attrs)) {
+                $attributes_to_remove[] = $attr_name;
+            } else {
+                // Additional validation for specific attributes
+                if ($attr_name === 'href' || $attr_name === 'src') {
+                    $url = trim($attr->value);
+                    
+                    // Only allow http, https, and relative URLs
+                    if (!preg_match('/^(https?:\/\/|\/|\.\/|[a-zA-Z0-9])/i', $url)) {
+                        $attributes_to_remove[] = $attr_name;
+                    }
+                    
+                    // Reject javascript:, data:, vbscript: protocols
+                    if (preg_match('/^\s*(?:javascript|data|vbscript):/i', $url)) {
+                        $attributes_to_remove[] = $attr_name;
+                    }
+                }
+            }
+        }
+        
+        // Remove invalid attributes
+        foreach ($attributes_to_remove as $attr_name) {
+            $node->removeAttribute($attr_name);
+        }
+    }
+    
+    // Get clean content
+    $clean_content = $dom->saveHTML();
+    
+    // Remove the XML declaration that DOMDocument adds
+    $clean_content = preg_replace('/^<!DOCTYPE.+?>/', '', $clean_content);
+    $clean_content = str_replace(['<html>', '</html>', '<body>', '</body>'], '', $clean_content);
+    
+    return trim($clean_content);
+}
+
+// Enhanced function to get active ads by position with proper date filtering
+function getActiveAdsByPosition($position) {
+    $db = Database::getInstance();
+    
+    $current_date = date('Y-m-d');
+    
+    return $db->fetchAll("
+        SELECT * FROM ads 
+        WHERE position = :position 
+        AND is_active = true 
+        AND (start_date IS NULL OR start_date <= :current_date)
+        AND (end_date IS NULL OR end_date >= :current_date)
+        ORDER BY created_at DESC
+    ", [
+        ':position' => $position,
+        ':current_date' => $current_date
+    ]);
+}
+
+// Secure file deletion function
+function deleteAdImage($image_url) {
+    if (empty($image_url)) {
+        return true;
+    }
+    
+    // Convert URL to relative path if it's a full URL
+    if (strpos($image_url, UPLOAD_URL) === 0) {
+        $relative_path = str_replace(UPLOAD_URL, '', $image_url);
+    } else {
+        $relative_path = $image_url;
+    }
+    
+    // Ensure the path is within the uploads directory
+    $full_path = UPLOAD_PATH . ltrim($relative_path, '/');
+    $real_path = realpath($full_path);
+    $upload_real_path = realpath(UPLOAD_PATH);
+    
+    // Security check: ensure file is within upload directory
+    if ($real_path === false || $upload_real_path === false || strpos($real_path, $upload_real_path) !== 0) {
+        return false;
+    }
+    
+    if (file_exists($real_path) && is_file($real_path)) {
+        return unlink($real_path);
+    }
+    
+    return true;
+}
 ?>
